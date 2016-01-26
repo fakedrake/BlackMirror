@@ -151,7 +151,11 @@ var JSWrappedObject = {
       return;
     }
 
-    assert.equal(json._type, 'wrapped_js_object');
+    if (json._type !== 'wrapped_js_object') {
+      assert.deepEqual(lifted, json);
+      return;
+    }
+
     if (json.wrapped_type === 'ArrayBuffer') {
       assert.deepEqual(bufToArr(lifted), json.value);
       return;

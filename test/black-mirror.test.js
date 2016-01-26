@@ -156,6 +156,7 @@ describe("black-mirror.test", function () {
 
     function process (api) {
       api.send(buf, function () {});
+      api.send([2,4,6], function () {});
     }
 
     var rec = new bm.Recorder(api, ['send']);
@@ -226,5 +227,4 @@ describe("black-mirror.test", function () {
     // when to return.
     assert.throws(function () {rec.checker();});
   });
-
 });

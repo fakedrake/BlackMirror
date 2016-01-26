@@ -1,1 +1,6 @@
 * Black Mirror
+
+  BlackMirror is a way to record and reproduce the intraction of a
+  program with a javascript API.
+
+** Usage
