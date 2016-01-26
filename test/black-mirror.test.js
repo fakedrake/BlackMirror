@@ -148,14 +148,16 @@ describe("black-mirror.test", function () {
         buf2 = arrToBuf([1,3,5]),
         buf = buf1,
         api = {
-          send: function (buf, cb) {}
+          send: function (buf, cb) {cb(buf);}
         };
 
     assert(buf1 instanceof ArrayBuffer);
     assert(buf2 instanceof ArrayBuffer);
 
     function process (api) {
-      api.send(buf, function () {});
+      api.send(buf, function (b) {
+        assert.deepEqual(b, buf);
+      });
       api.send([2,4,6], function () {});
     }
 

@@ -173,7 +173,9 @@ var JSWrappedObject = {
       return Closure.deserialize(apimessages, json);
 
 
-    assert.equal(json._type, 'wrapped_js_object');
+    if (json._type !== 'wrapped_js_object')
+      return json;
+
     if (json.wrapped_type === 'ArrayBuffer')
       return arrToBuf(json.value);
 
