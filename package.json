@@ -1,0 +1,15 @@
+{
+  "name": "BlackMirror",
+  "version": "0.0.1",
+  "description": "Test program's interaction with APIs.",
+  "keywords": ["testing"],
+  "author": "Chris Perivolaropoulos",
+  "contributors": [],
+  "dependencies": {},
+  "scripts": {
+    "test": "mocha test/black-mirror.test.js"
+  },
+  "devDependencies": {
+    "mocha": "*"
+  }
+}
