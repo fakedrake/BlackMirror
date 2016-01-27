@@ -229,4 +229,26 @@ describe("black-mirror.test", function () {
     // when to return.
     assert.throws(function () {rec.checker();});
   });
+
+  it("chrome", function (done) {
+    var checker = bm.Checker.deserialize(null, JSON.parse('{"_type":"checker","log":[{"_type":"api_message","args":{"_type":"arguments","args":[{"_type":"closure","callback_from":0}]},"name":"getDevices"},{"_type":"api_message_return","from_api_message":0,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":0},"args":{"_type":"arguments","args":[[{"path":"/dev/cu.AdafruitEZ-Link1ca6-SPP"},{"path":"/dev/cu.Bluetooth-Incoming-Port"},{"path":"/dev/tty.AdafruitEZ-Link1ca6-SPP"},{"path":"/dev/tty.Bluetooth-Incoming-Port"}]]}}],"methods":["getDevices"]}'));
+
+    // Mock the chrome api
+    checker.api.getDevices(function (devs) {
+      assert.deepEqual(devs.map(function (d) {return d.path;}),
+                   ["/dev/cu.AdafruitEZ-Link1ca6-SPP",
+                    "/dev/cu.Bluetooth-Incoming-Port",
+                    "/dev/tty.AdafruitEZ-Link1ca6-SPP",
+                    "/dev/tty.Bluetooth-Incoming-Port"]
+                      );
+      checker.done();
+      done();
+    });
+  });
+
+  it('blogpost', function () {
+    var data = JSON.parse('{"_type":"checker","log":[{"_type":"api_message","args":{"_type":"arguments","args":[{"_type":"closure","callback_from":0}]},"name":"serial.getDevices"},{"_type":"api_message_return","from_api_message":0,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":0},"args":{"_type":"arguments","args":[[{"path":"/dev/cu.Bluetooth-Incoming-Port"},{"path":"/dev/cu.usbmodem1411"},{"path":"/dev/tty.Bluetooth-Incoming-Port"},{"path":"/dev/tty.usbmodem1411"},null, null, null]]}},{"_type":"api_message","args":{"_type":"arguments","args":["/dev/cu.usbmodem1411",{"bitrate":9600},{"_type":"closure","callback_from":1}]},"name":"serial.connect"},{"_type":"api_message_return","from_api_message":1,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":1},"args":{"_type":"arguments","args":[{"bitrate":9600,"bufferSize":4096,"connectionId":1,"ctsFlowControl":true,"dataBits":"eight","name":"","parityBit":"no","paused":false,"persistent":false,"receiveTimeout":0,"sendTimeout":0,"stopBits":"one"}]}},{"_type":"api_message","args":{"_type":"arguments","args":[1,{"_type":"closure","callback_from":2}]},"name":"serial.disconnect"},{"_type":"api_message_return","from_api_message":2,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":2},"args":{"_type":"arguments","args":[true]}}],"methods":["serial.getDevices","serial.connect","serial.disconnect"]}'),
+        chk = bm.Checker.deserialize([],data);
+  })
+
 });
