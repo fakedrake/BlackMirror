@@ -84,8 +84,7 @@ function Closure (fn) {
   this.type = 'closure';
 }
 Closure.deserialize = function (apimessages, json) {
-  assert.equal(json._type, 'closure');
-
+  jt(json, 'closure');
   tc(apimessages[json.callback_from], ApiMessage);
   return apimessages[json.callback_from].closure();
 };
@@ -479,13 +478,18 @@ function Recorder (api, methods) {
   this.log = [];
   this.api = traverseMethodTree(methods, this.wrapMethod.bind(this), api);
   this.methods = methods;
+  this.callbacks = [];
 }
 Recorder.prototype = {
-  // Create a checker with the list
-  checker: function () {
-    var am =  this.log.filter(function (l) {
+  apiMessages: function () {
+    return this.log.filter(function (l) {
       return l instanceof ApiMessage;
     });
+  },
+
+  // Create a checker with the list
+  checker: function () {
+    var am = this.apiMessages();
     return new Checker(this.log.map(function (l)  {
       return l.serialize(am);
     }), this.methods);
@@ -496,7 +500,7 @@ Recorder.prototype = {
     return function wrappedMethod () {
       // Do not record internal calls.
       var args = [].slice.call(arguments),
-      am = new ApiMessage(name, new Arguments(args));
+          am = new ApiMessage(name, new Arguments(args));
 
       self.log.push(am);
       var ret = ref.apply(parent, self.wrapCallbacks(args));
@@ -517,12 +521,21 @@ Recorder.prototype = {
 
   wrapCallback: function (fn) {
     var self = this;
-    return function wrappedCallback () {
+
+    function wrappedCallback () {
       var closure = new Closure(fn);
       self.log.push(new ClosureCall(closure,
                                     new Arguments([].slice.call(arguments))));
       return fn.apply(null, arguments);
-    };
+    }
+
+    for (var i = 0; i < this.callbacks.length; i++) {
+      if (this.callbacks[i].fn === fn)
+        return this.callbacks[i].wrappedCallback;
+    }
+
+    this.callbacks.push({fn: fn, wrappedCallback: wrappedCallback});
+    return wrappedCallback;
   }
 };
 
