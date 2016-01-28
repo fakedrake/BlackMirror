@@ -1,0 +1,407 @@
+* Traversing the Black Mirror
+
+  It is often the case that testing a computer program in the the
+  environment in which it was meant to be run not practical outright
+  impossible. This is a common issue in embedded
+  development. [[http://github.com/fakedrake/BlackMirror][BlackMirror]] aspires to solve the problem for javascript
+  by blackboxing the application, recording the interction of a
+  successful execution with an API, and asserting that a different
+  program haves the same interaction with API as the first one. A big
+  design goal was for the stored interaction to be serializable so
+  BlackMirror is not only able to replay APIs with a different system
+  state but also APIs that are later not available at all.
+
+** Simple usage
+
+   The BlackMirror package provides two entry point objects, the
+   =Recorder= and the =Checker=. As is apparent from the names the
+   =Recorder= evasedrops on the commnication between the API and the
+   application during a successful run and the =Checker= provides an
+   API that can assests tha application's behavior and behaves very
+   much in the same way as the original API.
+
+   Let's take a look at a practical example: the =chrome.serial.*=
+   API. Here is a javascript program that looks for a specific device,
+   connects to it and disconnects from it.
+
+   #+BEGIN_SRC js
+function program (chrome) {
+  chrome.serial.getDevices(function (devs) {
+    var dev = null;
+
+    console.log("Found devices:", devs);
+    // Find the device we were looking for
+    devs.some(function (d) {
+      if (d.path !== '/dev/cu.usbmodem1411') return false;
+      dev = d.path;
+      return true;
+    });
+
+    // Connect to the device
+    if (!dev) return;
+    console.log("Connecting to device:", dev);
+    chrome.serial.connect(dev, {bitrate: 9600}, function (info) {
+      console.log("Connection info:", info);
+      chrome.serial.disconnect(info.connectionId, function (ok) {
+        console.log("Disconnected:", ok);
+      });
+    });
+  });
+}
+   #+END_SRC
+
+   Notice a couple of things in the above code. One is that the chrome
+   API is an injected dependency. This is so that we can easily swap
+   it out for the recording and checking API:
+
+   It was a design decision to force the user to explicitly declare in
+   advance the API methods they will be using. One reason for this is
+   so one pays only for what one gets. Another is that it forces the
+   user to realize what they are using and what they are not. So here
+   we record this on the console of a chrome app with the right
+   permissions.
+
+   #+BEGIN_SRC js
+   > rec = new blackmirror.Recorder(chrome, ["serial.getDevices", "serial.connect", "serial.disconnect"])
+   Recorder {log: Array[0], api: Object, methods: Array[3]}
+   > program(rec.api)
+   undefined
+   Found devices: [Object, Object, Object, Object]
+   Connecting to device: /dev/cu.usbmodem1411
+   Connection info: Object {bitrate: 9600, bufferSize: 4096, connectionId: 1, ctsFlowControl: true, dataBits: "eight"…}
+   Disconnected: true
+   #+END_SRC
+
+   So indeed the recorder is made to work exactly like the chrome
+   API. Notice also how the methods can be declared deeper in the API
+   object tree using the =.= separated tree notation.
+
+   So now let's make a checker out of this recording. First we
+   physically disconnect the connected the device. Here is proof:
+
+   #+BEGIN_SRC js
+   > chrome.serial.getDevices(function (devs) {console.log("Found devices:", devs.map(function (d) {return d.path}))});
+   undefined
+   Found devices: ["/dev/cu.Bluetooth-Incoming-Port", "/dev/tty.Bluetooth-Incoming-Port"]
+   #+END_SRC
+
+   And we make sure that the chrome API wouldn't run in the same way.
+
+   #+BEGIN_SRC js
+   > program(chrome)
+   undefined
+   Found devices: [Object, Object]
+   #+END_SRC
+
+   And now we can run our checker
+
+   #+BEGIN_SRC js
+   > program(rec.checker().api)
+   undefined
+   Found devices: [Object, Object, Object, Object]
+   Connecting to device: /dev/cu.usbmodem1411
+   Connection info: Object {bitrate: 9600, bufferSize: 4096, connectionId: 1, ctsFlowControl: true, dataBits: "eight"…}
+   Disconnected: true
+   #+END_SRC
+
+   Amazing! As if the device is still there!
+
+   [[{{{http://1.media.dorkly.cvcdn.com/50/27/0d41808f60af8871fa122b3b0f37ab1b.gif}}}]]
+
+** Other cases
+
+   So let's see some implementations of =program= that actually
+   fail. Firstly we have the program that passes the wrong
+   arguments. Here is a version of it that will not choose the device
+   like above, but will rather connect to the first device it
+   encounters.
+
+   #+BEGIN_SRC js
+function bad_device_program (chrome) {
+  chrome.serial.getDevices(function (devs) {
+    console.log("Found devices:", devs);
+
+    // ##### Connect to the *first* device ####
+    console.log("Connecting to device:", devs[0]);
+    chrome.serial.connect(devs[0].path, {bitrate: 9600}, function (info) {
+      console.log("Connection info:", info);
+      chrome.serial.disconnect(info.connectionId, function (ok) {
+        console.log("Disconnected:", ok);
+      });
+    });
+  });
+}
+   #+END_SRC
+
+   Let's check our program.
+
+   #+BEGIN_SRC js
+   > bad_device_program(rec.checker().api)
+   undefined
+   Found devices: [Object, Object, Object, Object]
+   Connecting to device: Object {path: "/dev/cu.Bluetooth-Incoming-Port"}
+   Uncaught AssertionError: "/dev/cu.Bluetooth-Incoming-Port" == "/dev/cu.usbmodem1411"
+   #+END_SRC
+
+   And the checker got the issue. The stack trace of the
+   =AssertionError= will also lead us to the correct call. Similar
+   errors will happen if the sequence of API calls is in any way
+   different to the one recorder. Worth noting is also that if a
+   method is not registered to the recorder's constructor it will not
+   be available either at the time of recording or at the time of
+   checking.
+
+   Finally an interesting feature is that checkers can
+   distinguish between asynchronous and synchronous calls of the
+   program and asserts the recorded behavior.
+
+** Serialization
+
+*** Different platforms
+
+    Serialization is a big part of the system. The checker can be
+    encoded entirely to JSON, including the behavior of callbacks and
+    serialization/deserialization of all arguments. As an example let's
+    move the chrome program to node.js.
+
+    #+BEGIN_SRC js
+   > JSON.stringify(rec.checker().serialize())
+   '"{"_type":"checker","log":[{"_type":"api_message","args":{"_type":"arguments","args":[{"_type":"closure","callback_from":0}]},"name":"serial.getDevices"},{"_type":"api_message_return","from_api_message":0,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":0},"args":{"_type":"arguments","args":[[{"path":"/dev/cu.Bluetooth-Incoming-Port"},{"displayName":"Generic CDC","path":"/dev/cu.usbmodem1411","productId":67,"vendorId":9025},{"path":"/dev/tty.Bluetooth-Incoming-Port"},{"displayName":"Generic CDC","path":"/dev/tty.usbmodem1411","productId":67,"vendorId":9025}]]}},{"_type":"api_message","args":{"_type":"arguments","args":["/dev/cu.usbmodem1411",{"bitrate":9600},{"_type":"closure","callback_from":1}]},"name":"serial.connect"},{"_type":"api_message_return","from_api_message":1,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":1},"args":{"_type":"arguments","args":[{"bitrate":9600,"bufferSize":4096,"connectionId":1,"ctsFlowControl":true,"dataBits":"eight","name":"","parityBit":"no","paused":false,"persistent":false,"receiveTimeout":0,"sendTimeout":0,"stopBits":"one"}]}},{"_type":"api_message","args":{"_type":"arguments","args":[1,{"_type":"closure","callback_from":2}]},"name":"serial.disconnect"},{"_type":"api_message_return","from_api_message":2,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":2},"args":{"_type":"arguments","args":[true]}}],"methods":["serial.getDevices","serial.connect","serial.disconnect"]}"'
+    #+END_SRC
+
+    Then on a node repl we copy paste the above string.
+
+    #+BEGIN_SRC js
+   > var data = JSON.parse('{"_type":"checker","log":[{"_type":"api_message","args":{"_type":"arguments","args":[{"_type":"closure","callback_from":0}]},"name":"serial.getDevices"},{"_type":"api_message_return","from_api_message":0,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":0},"args":{"_type":"arguments","args":[[{"path":"/dev/cu.Bluetooth-Incoming-Port"},{"displayName":"Generic CDC","path":"/dev/cu.usbmodem1411","productId":67,"vendorId":9025},{"path":"/dev/tty.Bluetooth-Incoming-Port"},{"displayName":"Generic CDC","path":"/dev/tty.usbmodem1411","productId":67,"vendorId":9025}]]}},{"_type":"api_message","args":{"_type":"arguments","args":["/dev/cu.usbmodem1411",{"bitrate":9600},{"_type":"closure","callback_from":1}]},"name":"serial.connect"},{"_type":"api_message_return","from_api_message":1,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":1},"args":{"_type":"arguments","args":[{"bitrate":9600,"bufferSize":4096,"connectionId":1,"ctsFlowControl":true,"dataBits":"eight","name":"","parityBit":"no","paused":false,"persistent":false,"receiveTimeout":0,"sendTimeout":0,"stopBits":"one"}]}},{"_type":"api_message","args":{"_type":"arguments","args":[1,{"_type":"closure","callback_from":2}]},"name":"serial.disconnect"},{"_type":"api_message_return","from_api_message":2,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":2},"args":{"_type":"arguments","args":[true]}}],"methods":["serial.getDevices","serial.connect","serial.disconnect"]}')
+   > var checker = bm.Checker.deserialize([], data)
+   > program(checker.api)
+   undefined
+   > Found devices: [ { path: '/dev/cu.Bluetooth-Incoming-Port' },
+                      { displayName: 'Generic CDC',
+                          path: '/dev/cu.usbmodem1411',
+                          productId: 67,
+                          vendorId: 9025 },
+                        { path: '/dev/tty.Bluetooth-Incoming-Port' },
+                        { displayName: 'Generic CDC',
+                          path: '/dev/tty.usbmodem1411',
+                          productId: 67,
+                          vendorId: 9025 } ]
+   Connecting to device: /dev/cu.usbmodem1411
+   Connection info: { bitrate: 9600,
+                      bufferSize: 4096,
+                      connectionId: 1,
+                      ctsFlowControl: true,
+                      dataBits: 'eight',
+                      name: '',
+                      parityBit: 'no',
+                      paused: false,
+                      persistent: false,
+                      receiveTimeout: 0,
+                      sendTimeout: 0,
+                      stopBits: 'one' }
+   Disconnected: true
+    #+END_SRC
+
+    It worked! Notice how there is a =>= prompt before the =Found
+    devices= part. This means that the checker replicated the
+    asynchronous behavior of =getDevices= and prompted since the
+    initial block was done.
+
+    Something worth pointing out at this point is that a checker object
+    is stateful. This means that once the program is done the checker
+    keeps waiting for API methods to pop off it's (possibly empty)
+    stack. It does not however touch the object that was provided for
+    deserialization. So we need to use that again to make a new checker
+    to test again.
+
+    #+BEGIN_SRC js
+   > var checker = bm.Checker.deserialize([], data)
+   > bad_device_program(checker.api)
+   undefined
+   > Found devices: [ { path: '/dev/cu.Bluetooth-Incoming-Port' },
+     { displayName: 'Generic CDC',
+       path: '/dev/cu.usbmodem1411',
+       productId: 67,
+       vendorId: 9025 },
+     { path: '/dev/tty.Bluetooth-Incoming-Port' },
+     { displayName: 'Generic CDC',
+       path: '/dev/tty.usbmodem1411',
+       productId: 67,
+       vendorId: 9025 } ]
+   Connecting to device: { path: '/dev/cu.Bluetooth-Incoming-Port' }
+   AssertionError: '/dev/cu.Bluetooth-Incoming-Port' == '/dev/cu.usbmodem1411'
+       at Object.JSWrappedObject.assertEqual (/Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:145:14)
+       at Object.Arguments.assertEqual (/Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:228:23)
+       at Object.ApiMessage.assertEqual (/Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:345:15)
+       at Object.checkedMethod [as connect] (/Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:453:17)
+       at repl:7:15
+       at /Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:121:22
+       at null._onTimeout (/Users/drninjabatman/Projects/Codebendercc/BlackMirror/black-mirror.js:434:21)
+       at Timer.listOnTimeout (timers.js:110:15)
+    #+END_SRC
+
+    Yes! exactly the same error as on chrome, and chrome API methods
+    don't even exist on node!
+
+*** Editing API behavior
+
+    We did not pay too much attention to the data we transferred from
+    chrome to node but it is possible (and recommended) that this data
+    be edited to emulate API behaviors that we can not physically
+    replicate on our machine. For example let's have an API that will
+    return some gibberish devices on the =getDevices= step.
+
+    In the =log= property of the serialized which contains an array
+    checker we look for the entry of =_type: "api_message"= and =name:
+    "serial.getDevices"=  The argument will be like this:
+
+    #+BEGIN_SRC json
+    ...
+    "args": [
+          {
+            "_type": "closure",
+            "callback_from": 0
+          }
+        ]
+    ...
+    #+END_SRC
+
+    We then look for the next use of callback 0 in a =_type:
+    closure_call= which is this entry.
+
+    #+BEGIN_SRC json
+    ...
+    {
+      "_type": "closure_call",
+      "closure": {
+        "_type": "closure",
+        "callback_from": 0
+      },
+      "args": {
+        "_type": "arguments",
+        "args": [
+          [
+            {
+              "path": "/dev/cu.Bluetooth-Incoming-Port"
+            },
+            {
+              "displayName": "Generic CDC",
+              "path": "/dev/cu.usbmodem1411",
+              "productId": 67,
+              "vendorId": 9025
+            },
+            {
+              "path": "/dev/tty.Bluetooth-Incoming-Port"
+            },
+            {
+              "displayName": "Generic CDC",
+              "path": "/dev/tty.usbmodem1411",
+              "productId": 67,
+              "vendorId": 9025
+            }
+          ]
+        ]
+      }
+    }
+    ...
+    #+END_SRC
+
+    Here we can add more arguments to the list and that will be
+    replicated. We make sure only the "path" property is used by the
+    program and that we stop looking for devices when we find what we
+    are lookig for by adding a couple of =null= at the end of the list
+    that will fail.
+
+    #+BEGIN_SRC json
+    {
+      "_type": "closure_call",
+      "closure": {
+        "_type": "closure",
+        "callback_from": 0
+      },
+      "args": {
+        "_type": "arguments",
+        "args": [
+          [
+            {
+              "path": "/dev/cu.Bluetooth-Incoming-Port"
+            },
+            {
+              "path": "/dev/cu.usbmodem1411",
+            },
+            {
+              "path": "/dev/tty.Bluetooth-Incoming-Port"
+            },
+            {
+              "path": "/dev/tty.usbmodem1411",
+            }, null, null, null
+          ]
+        ]
+      }
+    }
+    #+END_SRC
+
+    And indeed that get's reflected on the program's output and yet
+    our program succeeds:
+
+    #+BEGIN_SRC js
+    > var chk = bm.Checker.deserialize([], JSON.parse('{"_type":"checker","log":[{"_type":"api_message","args":{"_type":"arguments","args":[{"_type":"closure","callback_from":0}]},"name":"serial.getDevices"},{"_type":"api_message_return","from_api_message":0,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":0},"args":{"_type":"arguments","args":[[{"path":"/dev/cu.Bluetooth-Incoming-Port"},{"path":"/dev/cu.usbmodem1411"},{"path":"/dev/tty.Bluetooth-Incoming-Port"},{"path":"/dev/tty.usbmodem1411"},null, null, null]]}},{"_type":"api_message","args":{"_type":"arguments","args":["/dev/cu.usbmodem1411",{"bitrate":9600},{"_type":"closure","callback_from":1}]},"name":"serial.connect"},{"_type":"api_message_return","from_api_message":1,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":1},"args":{"_type":"arguments","args":[{"bitrate":9600,"bufferSize":4096,"connectionId":1,"ctsFlowControl":true,"dataBits":"eight","name":"","parityBit":"no","paused":false,"persistent":false,"receiveTimeout":0,"sendTimeout":0,"stopBits":"one"}]}},{"_type":"api_message","args":{"_type":"arguments","args":[1,{"_type":"closure","callback_from":2}]},"name":"serial.disconnect"},{"_type":"api_message_return","from_api_message":2,"value":{"_type":"return_value"}},{"_type":"closure_call","closure":{"_type":"closure","callback_from":2},"args":{"_type":"arguments","args":[true]}}],"methods":["serial.getDevices","serial.connect","serial.disconnect"]}'));
+    undefined
+    > program(chk.api)
+    undefined
+    > Found devices: [ { path: '/dev/cu.Bluetooth-Incoming-Port' },
+      { path: '/dev/cu.usbmodem1411' },
+      { path: '/dev/tty.Bluetooth-Incoming-Port' },
+      { path: '/dev/tty.usbmodem1411' },
+      null,
+      null,
+      null ]
+    Connecting to device: /dev/cu.usbmodem1411
+    Connection info: { bitrate: 9600,
+      bufferSize: 4096,
+      connectionId: 1,
+      ctsFlowControl: true,
+      dataBits: 'eight',
+      name: '',
+      parityBit: 'no',
+      paused: false,
+      persistent: false,
+      receiveTimeout: 0,
+      sendTimeout: 0,
+      stopBits: 'one' }
+    Disconnected: true
+    #+END_SRC
+
+    As you may notice manually editing a serialized checker is both
+    hard and very restricted. For example changes in control flow of
+    the program due to manual edits may be interpreted as errors by
+    the checker since the interaction with the API will have changed.
+
+** Caveats and the future
+
+   BlackMirror is not meant to be the only testing tool in a
+   programmer's arsenal. Far from it. Recording and replaying
+   behaviors is not proper controlled testing, not only because it has
+   a very low recall, but also because it makes it very easy for the
+   programmer to overlook important problems in the program's logic,
+   that may not affect the interaction with the API. That said it is a
+   nice-to-know when a changes it's interface with an API.
+
+   Some things I would like to fix in the future about BlackMirror:
+
+   - Event hooks for checker to add behavior for example to introduce
+     random delays on the callbacks emulating a slow API.
+   - BlackMirror currently does not play well with errors thrown by
+     the API. Even handled errors thrown by the API will always cause
+     the checker to fail in unexpected ways. But then again try-catch
+     blocks will mess with javascript optimization and silence
+     possibly valuable errors so don't use them anyway.
+   - Some error messages could be more descriptive.
+   - Timing of API calls is completely ignored and callbacks are called ASAP.
+   - Serialization of callback and method arguments currently supports
+     all json serializable objects and also ArrayBuffers if they are
+     passed directly as arguments and (obviously for anyone who read
+     this far) callbacks. An extensibility mechanism for this might be
+     in order.
+
+   Bugs and patches are more than welcome!
