@@ -148,7 +148,8 @@ describe("black-mirror.test", function () {
         buf2 = arrToBuf([1,3,5]),
         buf = buf1,
         api = {
-          send: function (buf, cb) {cb(buf);}
+          send: function (buf, cb) {cb(buf);},
+          deepSend: function (obj) {}
         };
 
     assert(buf1 instanceof ArrayBuffer);
@@ -159,17 +160,18 @@ describe("black-mirror.test", function () {
         assert.deepEqual(b, buf);
       });
       api.send([2,4,6], function () {});
+      api.deepSend({data: buf});
     }
 
-    var rec = new bm.Recorder(api, ['send']);
+    var rec = new bm.Recorder(api, ['send', 'deepSend']);
     process(rec.api);
     buf = buf2;
     assert.throws(function () {
       process(rec.checker().api);
     });
     buf = buf1;
+    process(rec.checker().api);
     assert.doesNotThrow(function () {
-      process(rec.checker().api);
     });
     buf = buf2;
     assert.throws(function () {

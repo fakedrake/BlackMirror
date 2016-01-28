@@ -214,6 +214,7 @@ var JSWrappedObject = {
     if (json.wrapped_type === 'ArrayBuffer')
       return arrToBuf(json.value);
 
+
     throw Error("Could not deserialize " + json);
   }
 
@@ -401,7 +402,7 @@ function traverseMethodTree (methods, wrap, rawApi) {
 }
 
 // Checker can not know when we are done.
-function Checker (serialLog, methods) {
+function Checker (serialLog, methods, scheduler) {
   var self = this;
   // We should not mutate the serial log
   this.serialLog = serialLog.slice();
@@ -411,13 +412,14 @@ function Checker (serialLog, methods) {
   this.methods = methods;
   this.api = traverseMethodTree(methods, this.wrapMethod.bind(this));
   this.sanityCheckLog(serialLog);
+  this.scheduler = scheduler || {setTimeout: setTimeout};
 
   // All methods should pop ApiMessages
   // ClosureCalls should be popped when they are on top.
 }
-Checker.deserialize = function (_, json) {
+Checker.deserialize = function (_, json, scheduler) {
   assert.equal(json._type, 'checker');
-  return new Checker(json.log, json.methods);
+  return new Checker(json.log, json.methods, scheduler);
 };
 Checker.prototype = {
   sanityCheckLog: function (jsonLog) {
@@ -461,10 +463,12 @@ Checker.prototype = {
   scheduleWake: function () {
     if (this.next) return;
     var self = this;
-    this.next = setTimeout(function () {
+    this.next = this.scheduler.setTimeout(function () {
       self.next = null;
 
-      if (self.serialLog.length == 0) return;
+      if (self.serialLog.length == 0 || self.serialLog[0]._type != 'closure_call')
+        return;
+
       var cc = ClosureCall.deserialize(self.runMessageLog, self.serialLog.shift());
       cc.callable().call(null);
       self.scheduleWake();
