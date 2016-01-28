@@ -132,6 +132,18 @@ var JSWrappedObject = {
       };
     }
 
+    // Serialize arraybuffers in the deeper level
+    if (typeof value === 'object' &&
+        value.data &&
+        value.data instanceof ArrayBuffer) {
+      var ret = {};
+      Object.getOwnPropertyNames(value).forEach(function (k) {
+        ret[k] = JSWrappedObject.serialize(apimessages, value[k]);
+      });
+      return ret;
+    }
+
+
     if (value instanceof Closure) {
       return value.serialize(apimessages);
     }
@@ -142,6 +154,20 @@ var JSWrappedObject = {
   assertEqual: function (lifted, json, apimessages) {
     if (typeof json !== 'object') {
       assert.equal(lifted, json);
+      return;
+    }
+
+    // Assert equality of deeper arraybuffers
+    if (typeof json.data === 'object' &&
+        json.data._type === 'wrapped_js_object' &&
+        json.data.wrapped_type === 'ArrayBuffer') {
+      tc(lifted.data, ArrayBuffer);
+      var jsonKeys = Object.getOwnPropertyNames(json),
+          liftedKeys = Object.getOwnPropertyNames(lifted);
+      assert.deepEqual(jsonKeys, liftedKeys);
+      jsonKeys.forEach(function (k) {
+        JSWrappedObject.assertEqual(lifted[k], json[k], apimessages);
+      });
       return;
     }
 
@@ -171,6 +197,16 @@ var JSWrappedObject = {
     if (json._type === 'closure')
       return Closure.deserialize(apimessages, json);
 
+    // Recurive deserialize if there is a deeper ArrayBuffer
+    if (typeof json.data === 'object' &&
+        json.data._type === 'wrapped_js_object' &&
+        json.data.wrapped_type === 'ArrayBuffer') {
+      var ret = {};
+      Object.getOwnPropertyNames(json).forEach(function (k) {
+        ret[k] = JSWrappedObject.deserialize([], json[k]);
+      });
+      return ret;
+    }
 
     if (json._type !== 'wrapped_js_object')
       return json;
@@ -545,3 +581,4 @@ module.exports.ClosureCall = ClosureCall;
 module.exports.ApiMessage = ApiMessage;
 module.exports.Checker = Checker;
 module.exports.Recorder = Recorder;
+module.exports.JSWrappedObject = JSWrappedObject;

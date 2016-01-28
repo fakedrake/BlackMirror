@@ -257,7 +257,17 @@ describe("black-mirror.test", function () {
         chk = bm.Checker.deserialize([],data);
   });
 
-  it("listeners", function () {
-  });
+  it('wrap objects', function () {
+    var ab = arrToBuf([1,2,3]), deep_ab = {data: ab},
+        serial_ab = bm.JSWrappedObject.serialize([], ab),
+        serial_deep_ab = bm.JSWrappedObject.serialize([], deep_ab),
+        deserial_ab = bm.JSWrappedObject.deserialize([], serial_ab),
+        deserial_deep_ab = bm.JSWrappedObject.deserialize([], serial_deep_ab);
 
+    assert(ab instanceof ArrayBuffer);
+    assert.deepEqual(serial_ab.value, [1,2,3]);
+    assert.deepEqual(serial_deep_ab.data.value, [1,2,3]);
+    assert.deepEqual(bufToArr(deserial_ab), [1,2,3]);
+    assert.deepEqual(bufToArr(deserial_deep_ab.data), [1,2,3]);
+  });
 });
