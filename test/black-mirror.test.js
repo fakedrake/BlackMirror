@@ -271,5 +271,11 @@ describe("black-mirror.test", function () {
     assert.deepEqual(serial_deep_ab.data.value, [1,2,3]);
     assert.deepEqual(bufToArr(deserial_ab), [1,2,3]);
     assert.deepEqual(bufToArr(deserial_deep_ab.data), [1,2,3]);
+    assert.throws(function () {
+      bm.JSWrappedObject.assertEqual(arrToBuf([1,2,4]), serial_ab, []);
+    });
+    assert.doesNotThrow(function () {
+      bm.JSWrappedObject.assertEqual(arrToBuf([1,2,3]), serial_ab, []);
+    });
   });
 });
