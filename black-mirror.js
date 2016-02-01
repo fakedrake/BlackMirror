@@ -378,6 +378,9 @@ ApiMessage.prototype = {
   assertEqual: function (serialized, apimessages) {
     assert.equal(serialized._type, this.type);
     assert.equal(serialized.name, this.name,
+                 "Called method:" + JSON.stringify(
+                   this.serialize(apimessages.concat([this])), null, 2) +
+                 "Checker method:" + JSON.stringify(serialized, null, 2) +
                  "Latest: " + JSON.stringify(apimessages, null, 2));
     this.args.assertEqual(serialized.args, apimessages);
   }
