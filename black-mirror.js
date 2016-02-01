@@ -377,7 +377,7 @@ ApiMessage.prototype = {
   },
   assertEqual: function (serialized, apimessages) {
     assert.equal(serialized._type, this.type);
-    assert.equal(serialized.name, this.name);
+    assert.equal(serialized.name, this.name, "Latest: " + apimessages);
     this.args.assertEqual(serialized.args, apimessages);
   }
 };
