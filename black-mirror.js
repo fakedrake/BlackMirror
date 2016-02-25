@@ -39,6 +39,16 @@
 
 var assert = require('assert');
 
+function deepCopy (obj) {
+  var ret = {};
+  if (typeof obj !== 'object') return obj;
+
+  Object.getOwnPropertyNames(obj).forEach(function (n) {
+    ret[n] = deepCopy(obj[n]);
+  });
+  return ret;
+}
+
 function arrToBuf(hex) {
   tc(hex, Array);
   var buffer = new ArrayBuffer(hex.length);
@@ -227,7 +237,7 @@ function Arguments (deserializedArgs) {
   this.type = 'arguments';
   this.args = deserializedArgs.map(function (a) {
     if (typeof a === 'function') return new Closure(a);
-    return a;
+    return deepCopy(a);
   });
 }
 Arguments.deserialize = function (apimessages, json) {
