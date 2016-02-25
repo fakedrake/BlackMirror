@@ -41,7 +41,14 @@ var assert = require('assert');
 
 function deepCopy (obj) {
   var ret = {};
-  if (typeof obj !== 'object') return obj;
+  if (typeof obj !== 'object' || obj instanceof ArrayBuffer)
+    return obj;
+
+  if (obj instanceof Array) {
+    return obj.map(deepCopy);
+  }
+
+  if (obj)
 
   Object.getOwnPropertyNames(obj).forEach(function (n) {
     ret[n] = deepCopy(obj[n]);
@@ -158,7 +165,7 @@ var JSWrappedObject = {
       return value.serialize(apimessages);
     }
 
-    return value;
+    return deepCopy(value);
   },
 
   assertEqual: function (lifted, json, apimessages) {
